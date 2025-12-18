@@ -42,6 +42,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     auto *eigBtn = new QPushButton("Собственные значения A");
     auto *ctrlBtn = new QPushButton("Управляемость?");
     auto *obsBtn = new QPushButton("Наблюдаемость?");
+    auto *ctrlMatBtn = new QPushButton("Матрица управляемости");
+    auto *obsMatBtn = new QPushButton("Матрица наблюдаемости");
 
     buttonRow->addWidget(inverseBtn);
     buttonRow->addWidget(detBtn);
@@ -49,6 +51,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     buttonRow->addWidget(eigBtn);
     buttonRow->addWidget(ctrlBtn);
     buttonRow->addWidget(obsBtn);
+    buttonRow->addWidget(ctrlMatBtn);
+    buttonRow->addWidget(obsMatBtn);
     buttonRow->addStretch();
     layout->addLayout(buttonRow);
 
@@ -63,6 +67,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(eigBtn, &QPushButton::clicked, this, &MainWindow::computeEigenvalues);
     connect(ctrlBtn, &QPushButton::clicked, this, &MainWindow::checkControllability);
     connect(obsBtn, &QPushButton::clicked, this, &MainWindow::checkObservability);
+    connect(ctrlMatBtn, &QPushButton::clicked, this, &MainWindow::showControllabilityMatrix);
+    connect(obsMatBtn, &QPushButton::clicked, this, &MainWindow::showObservabilityMatrix);
 
     central->setLayout(layout);
     setCentralWidget(central);
@@ -334,4 +340,42 @@ void MainWindow::checkObservability() {
                       .arg(rank)
                       .arg(n)
                       .arg(rank == n ? "НАБЛЮДАЕМА" : "НЕ наблюдаемая"));
+}
+
+void MainWindow::showControllabilityMatrix() {
+    Matrix A, B, block;
+    QString err;
+    if (!parseMatrix(inputA_->toPlainText(), A, err)) {
+        showError(err);
+        return;
+    }
+    if (!parseMatrix(inputB_->toPlainText(), B, err)) {
+        showError("B: " + err);
+        return;
+    }
+    auto res = controllabilityMatrix(A, B, block);
+    if (!res.ok) {
+        showError(QString::fromStdString(res.message));
+        return;
+    }
+    appendMessage("Матрица управляемости:\n" + matrixToString(block));
+}
+
+void MainWindow::showObservabilityMatrix() {
+    Matrix A, C, block;
+    QString err;
+    if (!parseMatrix(inputA_->toPlainText(), A, err)) {
+        showError(err);
+        return;
+    }
+    if (!parseMatrix(inputC_->toPlainText(), C, err)) {
+        showError("C: " + err);
+        return;
+    }
+    auto res = observabilityMatrix(A, C, block);
+    if (!res.ok) {
+        showError(QString::fromStdString(res.message));
+        return;
+    }
+    appendMessage("Матрица наблюдаемости:\n" + matrixToString(block));
 }

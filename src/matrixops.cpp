@@ -418,3 +418,39 @@ MatrixResult observabilityRank(const Matrix &A, const Matrix &C, int &rankOut) {
     rankOut = matrixRank(block);
     return {true, "OK"};
 }
+
+MatrixResult controllabilityMatrix(const Matrix &A, const Matrix &B, Matrix &block) {
+    if (!isSquare(A)) return {false, "A must be square"};
+    const size_t n = A.size();
+    if (B.size() != n) return {false, "B rows must match A"};
+    block = B;
+    Matrix power = A;
+    Matrix tmp;
+    for (size_t i = 1; i < n; ++i) {
+        if (!multiply(power, B, tmp)) return {false, "Multiply failed"};
+        for (size_t r = 0; r < n; ++r) {
+            block[r].insert(block[r].end(), tmp[r].begin(), tmp[r].end());
+        }
+        Matrix next;
+        if (!multiply(power, A, next)) return {false, "Multiply failed"};
+        power.swap(next);
+    }
+    return {true, "OK"};
+}
+
+MatrixResult observabilityMatrix(const Matrix &A, const Matrix &C, Matrix &block) {
+    if (!isSquare(A)) return {false, "A must be square"};
+    const size_t n = A.size();
+    if (C.empty() || C.front().size() != n) return {false, "C cols must match A"};
+    block = C;
+    Matrix power = A;
+    Matrix tmp;
+    for (size_t i = 1; i < n; ++i) {
+        if (!multiply(C, power, tmp)) return {false, "Multiply failed"};
+        block.insert(block.end(), tmp.begin(), tmp.end());
+        Matrix next;
+        if (!multiply(power, A, next)) return {false, "Multiply failed"};
+        power.swap(next);
+    }
+    return {true, "OK"};
+}

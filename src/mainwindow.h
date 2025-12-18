@@ -23,6 +23,8 @@ private slots:
     void checkControllability();
     void checkObservability();
     void solveSystem();
+    void showControllabilityMatrix();
+    void showObservabilityMatrix();
 
 private:
     QPlainTextEdit *inputA_{nullptr};
