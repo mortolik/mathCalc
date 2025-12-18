@@ -9,6 +9,7 @@
 #include <QVBoxLayout>
 #include <QTabWidget>
 #include <algorithm>
+#include <string>
 #include <sstream>
 #include <sstream>
 
@@ -416,16 +417,19 @@ void MainWindow::checkControllability() {
         return;
     }
     int rank = 0;
-    auto res = controllabilityRank(A, B, rank);
+    std::string witness;
+    auto res = controllabilityRank(A, B, rank, &witness);
     if (!res.ok) {
         showError(QString::fromStdString(res.message));
         return;
     }
     const int n = static_cast<int>(A.size());
+    QString extra = witness.empty() ? QString() : QString::fromStdString(witness);
     appendMessage(QString("Ранг управляемости = %1 (n = %2) -> %3")
                       .arg(rank)
                       .arg(n)
-                      .arg(rank == n ? "УПРАВЛЯЕМА" : "НЕ управляемая"));
+                      .arg(rank == n ? "УПРАВЛЯЕМА" : "НЕ управляемая")
+                      + (extra.isEmpty() ? QString() : QString("\n") + extra));
 }
 
 void MainWindow::checkObservability() {
@@ -440,16 +444,19 @@ void MainWindow::checkObservability() {
         return;
     }
     int rank = 0;
-    auto res = observabilityRank(A, C, rank);
+    std::string witness;
+    auto res = observabilityRank(A, C, rank, &witness);
     if (!res.ok) {
         showError(QString::fromStdString(res.message));
         return;
     }
     const int n = static_cast<int>(A.size());
+    QString extra = witness.empty() ? QString() : QString::fromStdString(witness);
     appendMessage(QString("Ранг наблюдаемости = %1 (n = %2) -> %3")
                       .arg(rank)
                       .arg(n)
-                      .arg(rank == n ? "НАБЛЮДАЕМА" : "НЕ наблюдаемая"));
+                      .arg(rank == n ? "НАБЛЮДАЕМА" : "НЕ наблюдаемая")
+                      + (extra.isEmpty() ? QString() : QString("\n") + extra));
 }
 
 void MainWindow::showControllabilityMatrix() {

@@ -1,8 +1,11 @@
 #include "matrixops.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
+#include <sstream>
 
 namespace {
 
@@ -41,38 +44,75 @@ std::optional<size_t> nCols(const Matrix &m) {
     return m.front().size();
 }
 
-int matrixRank(Matrix m, double tol) {
+int matrixRank(Matrix m, double tol, std::string *witness) {
     if (m.empty()) return 0;
+    if (tol <= 0) tol = 1e-9;
     const size_t rows = m.size();
     const size_t cols = m.front().size();
-    size_t r = 0;
-    for (size_t c = 0; c < cols && r < rows; ++c) {
-        size_t pivot = r;
-        double maxVal = std::fabs(m[pivot][c]);
-        for (size_t i = r + 1; i < rows; ++i) {
-            double val = std::fabs(m[i][c]);
-            if (val > maxVal) {
-                maxVal = val;
-                pivot = i;
+    const size_t maxK = std::min(rows, cols);
+
+    auto next_combination = [](std::vector<size_t> &comb, size_t n) {
+        const size_t k = comb.size();
+        for (size_t i = k; i-- > 0;) {
+            if (comb[i] < n - k + i) {
+                ++comb[i];
+                for (size_t j = i + 1; j < k; ++j) comb[j] = comb[j - 1] + 1;
+                return true;
             }
         }
-        if (maxVal <= tol) continue;
-        swapRows(m, pivot, r);
-        const double pivotVal = m[r][c];
-        for (size_t j = c; j < cols; ++j) {
-            m[r][j] /= pivotVal;
-        }
-        for (size_t i = 0; i < rows; ++i) {
-            if (i == r) continue;
-            const double factor = m[i][c];
-            if (std::fabs(factor) <= tol) continue;
-            for (size_t j = c; j < cols; ++j) {
-                m[i][j] -= factor * m[r][j];
+        return false;
+    };
+
+    Matrix sub;
+    if (witness) witness->clear();
+    // Check minors from largest to smallest until a non-zero determinant is found
+    for (size_t k = maxK; k >= 1; --k) {
+        std::vector<size_t> rowIdx(k), colIdx(k);
+        std::iota(rowIdx.begin(), rowIdx.end(), 0);
+        std::iota(colIdx.begin(), colIdx.end(), 0);
+        bool moreRows = true;
+        while (moreRows) {
+            bool moreCols = true;
+            while (moreCols) {
+                sub.assign(k, std::vector<double>(k, 0.0));
+                for (size_t i = 0; i < k; ++i) {
+                    for (size_t j = 0; j < k; ++j) {
+                        sub[i][j] = m[rowIdx[i]][colIdx[j]];
+                    }
+                }
+                double det = 0.0;
+                auto res = determinant(sub, det);
+                if (res.ok && std::fabs(det) > tol) {
+                    if (witness) {
+                        std::ostringstream os;
+                        os.setf(std::ios::fixed);
+                        os.precision(6);
+                        os << "Ненулевой минор " << k << "x" << k << " (строки: ";
+                        for (size_t idx = 0; idx < k; ++idx) {
+                            os << (rowIdx[idx] + 1);
+                            if (idx + 1 < k) os << ',';
+                        }
+                        os << "; столбцы: ";
+                        for (size_t idx = 0; idx < k; ++idx) {
+                            os << (colIdx[idx] + 1);
+                            if (idx + 1 < k) os << ',';
+                        }
+                        os << ") det = " << det;
+                        *witness = os.str();
+                    }
+                    return static_cast<int>(k);
+                }
+                moreCols = next_combination(colIdx, cols);
+            }
+            moreRows = next_combination(rowIdx, rows);
+            if (moreRows) {
+                std::iota(colIdx.begin(), colIdx.end(), 0);
+                moreCols = true;
             }
         }
-        ++r;
     }
-    return static_cast<int>(r);
+    if (witness) *witness = "Все миноры нулевые";
+    return 0;
 }
 
 bool multiply(const Matrix &A, const Matrix &B, Matrix &out) {
@@ -381,7 +421,7 @@ MatrixResult eigenvaluesQR(const Matrix &input, std::vector<double> &eigs, int m
     return {true, "OK"};
 }
 
-MatrixResult controllabilityRank(const Matrix &A, const Matrix &B, int &rankOut) {
+MatrixResult controllabilityRank(const Matrix &A, const Matrix &B, int &rankOut, std::string *witness) {
     if (!isSquare(A)) return {false, "A must be square"};
     const size_t n = A.size();
     if (B.size() != n) return {false, "B rows must match A"};
@@ -397,11 +437,11 @@ MatrixResult controllabilityRank(const Matrix &A, const Matrix &B, int &rankOut)
         if (!multiply(power, A, next)) return {false, "Multiply failed"};
         power.swap(next);
     }
-    rankOut = matrixRank(block);
+    rankOut = matrixRank(block, 1e-9, witness);
     return {true, "OK"};
 }
 
-MatrixResult observabilityRank(const Matrix &A, const Matrix &C, int &rankOut) {
+MatrixResult observabilityRank(const Matrix &A, const Matrix &C, int &rankOut, std::string *witness) {
     if (!isSquare(A)) return {false, "A must be square"};
     const size_t n = A.size();
     if (C.empty() || C.front().size() != n) return {false, "C cols must match A"};
@@ -415,7 +455,7 @@ MatrixResult observabilityRank(const Matrix &A, const Matrix &C, int &rankOut) {
         if (!multiply(power, A, next)) return {false, "Multiply failed"};
         power.swap(next);
     }
-    rankOut = matrixRank(block);
+    rankOut = matrixRank(block, 1e-9, witness);
     return {true, "OK"};
 }
 
