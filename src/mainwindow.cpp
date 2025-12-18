@@ -9,6 +9,8 @@
 #include <QVBoxLayout>
 #include <QTabWidget>
 #include <algorithm>
+#include <complex>
+#include <cmath>
 #include <string>
 #include <sstream>
 #include <sstream>
@@ -24,19 +26,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         auto *grid = new QGridLayout;
         grid->addWidget(new QLabel("A (n x n, коэффициенты)"), 0, 0);
         inputA_ = new QPlainTextEdit;
-        inputA_->setPlaceholderText("Строки через перевод строки; элементы через пробел или запятую");
+        inputA_->setPlaceholderText("Строки через перевод строки; элементы через пробел или запятую; поддерживаются комплексные a+bi");
         inputA_->setMinimumHeight(100);
         grid->addWidget(inputA_, 1, 0);
 
         grid->addWidget(new QLabel("B (n x m, вход)"), 0, 1);
         inputB_ = new QPlainTextEdit;
-        inputB_->setPlaceholderText("Для проверки управляемости (по желанию)");
+        inputB_->setPlaceholderText("Для проверки управляемости (по желанию), можно комплексные");
         inputB_->setMinimumHeight(100);
         grid->addWidget(inputB_, 1, 1);
 
         grid->addWidget(new QLabel("C (p x n / правая часть)"), 0, 2);
         inputC_ = new QPlainTextEdit;
-        inputC_->setPlaceholderText("Для наблюдаемости или правой части; если пусто — возьмем нули");
+        inputC_->setPlaceholderText("Для наблюдаемости или правой части; если пусто — возьмем нули; можно комплексные");
         inputC_->setMinimumHeight(100);
         grid->addWidget(inputC_, 1, 2);
 
@@ -94,19 +96,19 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         auto *grid = new QGridLayout;
         grid->addWidget(new QLabel("Матрица M1"), 0, 0);
         inputM1_ = new QPlainTextEdit;
-        inputM1_->setPlaceholderText("Строки через перевод строки; элементы через пробел/запятую");
+        inputM1_->setPlaceholderText("Строки через перевод строки; элементы через пробел/запятую; комплексные a+bi");
         inputM1_->setMinimumHeight(120);
         grid->addWidget(inputM1_, 1, 0);
 
         grid->addWidget(new QLabel("Матрица M2"), 0, 1);
         inputM2_ = new QPlainTextEdit;
-        inputM2_->setPlaceholderText("Строки через перевод строки; элементы через пробел/запятую");
+        inputM2_->setPlaceholderText("Строки через перевод строки; элементы через пробел/запятую; комплексные a+bi");
         inputM2_->setMinimumHeight(120);
         grid->addWidget(inputM2_, 1, 1);
 
         grid->addWidget(new QLabel("Матрица M3"), 0, 2);
         inputM3_ = new QPlainTextEdit;
-        inputM3_->setPlaceholderText("Строки через перевод строки; элементы через пробел/запятую");
+        inputM3_->setPlaceholderText("Строки через перевод строки; элементы через пробел/запятую; комплексные a+bi");
         inputM3_->setMinimumHeight(120);
         grid->addWidget(inputM3_, 1, 2);
 
@@ -187,12 +189,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1040, 720);
 }
 
-static bool parseNumber(const QString &token, double &val) {
-    bool ok = false;
+static bool parseRealToken(const QString &token, double &val) {
     QString t = token.trimmed();
-    if (t.startsWith('(') && t.endsWith(')')) {
-        t = t.mid(1, t.size() - 2).trimmed();
-    }
+    bool ok = false;
     val = t.toDouble(&ok);
     if (ok) return true;
     const int slashPos = t.indexOf('/');
@@ -208,6 +207,51 @@ static bool parseNumber(const QString &token, double &val) {
     return false;
 }
 
+static bool parseComplexToken(const QString &token, Complex &val) {
+    QString t = token.trimmed();
+    if (t.startsWith('(') && t.endsWith(')')) {
+        t = t.mid(1, t.size() - 2).trimmed();
+    }
+    t = t.replace('I', 'i');
+    // No 'i' -> real
+    if (!t.contains('i', Qt::CaseInsensitive)) {
+        double real = 0.0;
+        if (!parseRealToken(t, real)) return false;
+        val = Complex{real, 0.0};
+        return true;
+    }
+
+    // Handle forms: a+bi, a-bi, +bi, -bi, bi, -i, i
+    QString withoutI = t;
+    if (withoutI.endsWith('i', Qt::CaseInsensitive)) {
+        withoutI.chop(1);
+    }
+    int splitPos = -1;
+    for (int i = withoutI.size() - 1; i > 0; --i) {
+        const QChar ch = withoutI[i];
+        if (ch == '+' || ch == '-') { splitPos = i; break; }
+    }
+
+    double re = 0.0;
+    double im = 0.0;
+    if (splitPos == -1) {
+        // pure imaginary
+        QString imagStr = withoutI.trimmed();
+        if (imagStr.isEmpty() || imagStr == "+") imagStr = "1";
+        if (imagStr == "-") imagStr = "-1";
+        if (!parseRealToken(imagStr, im)) return false;
+    } else {
+        QString realStr = withoutI.left(splitPos).trimmed();
+        QString imagStr = withoutI.mid(splitPos).trimmed();
+        if (!parseRealToken(realStr, re)) return false;
+        if (imagStr.isEmpty() || imagStr == "+") imagStr = "1";
+        if (imagStr == "-") imagStr = "-1";
+        if (!parseRealToken(imagStr, im)) return false;
+    }
+    val = Complex{re, im};
+    return true;
+}
+
 bool MainWindow::parseMatrix(const QString &text, Matrix &out, QString &err) const {
     const QString cleaned = text.trimmed();
     if (cleaned.isEmpty()) {
@@ -215,7 +259,7 @@ bool MainWindow::parseMatrix(const QString &text, Matrix &out, QString &err) con
         return false;
     }
     const auto rows = cleaned.split('\n', Qt::SkipEmptyParts);
-    std::vector<std::vector<double>> data;
+    Matrix data;
     int expectedCols = -1;
     bool ok = true;
     for (const auto &rowStr : rows) {
@@ -224,10 +268,10 @@ bool MainWindow::parseMatrix(const QString &text, Matrix &out, QString &err) con
         rowNormalized.replace('|', ' ');
         const auto parts = rowNormalized.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
         if (parts.isEmpty()) continue;
-        std::vector<double> row;
+        std::vector<Complex> row;
         for (const auto &p : parts) {
-            double val = 0.0;
-            if (!parseNumber(p, val)) {
+            Complex val{0.0, 0.0};
+            if (!parseComplexToken(p, val)) {
                 err = QString("Cannot parse '%1'").arg(p);
                 return false;
             }
@@ -249,12 +293,27 @@ bool MainWindow::parseMatrix(const QString &text, Matrix &out, QString &err) con
 }
 
 QString MainWindow::matrixToString(const Matrix &m) const {
+    auto fmt = [](const Complex &z) {
+        std::ostringstream os;
+        os.setf(std::ios::fixed);
+        os.precision(6);
+        const double r = z.real();
+        const double im = z.imag();
+        const double tol = 1e-9;
+        if (std::abs(im) <= tol) {
+            os << r;
+        } else if (std::abs(r) <= tol) {
+            os << im << 'i';
+        } else {
+            os << r << (im >= 0 ? "+" : "") << im << 'i';
+        }
+        return os.str();
+    };
+
     std::ostringstream oss;
-    oss.setf(std::ios::fixed);
-    oss.precision(6);
     for (size_t i = 0; i < m.size(); ++i) {
         for (size_t j = 0; j < m[i].size(); ++j) {
-            oss << m[i][j];
+            oss << fmt(m[i][j]);
             if (j + 1 < m[i].size()) oss << ' ';
         }
         if (i + 1 < m.size()) oss << '\n';
@@ -294,17 +353,15 @@ void MainWindow::computeEigenvalues() {
         showError(err);
         return;
     }
-    std::vector<double> eigs;
+    std::vector<Complex> eigs;
     auto res = eigenvaluesQR(A, eigs);
     if (!res.ok) {
         showError(QString::fromStdString(res.message));
         return;
     }
     std::ostringstream oss;
-    oss.setf(std::ios::fixed);
-    oss.precision(6);
     for (size_t i = 0; i < eigs.size(); ++i) {
-        oss << eigs[i];
+        oss << matrixToString({{eigs[i]}}).toStdString();
         if (i + 1 < eigs.size()) oss << ", ";
     }
     appendMessage(QString("Собственные значения: %1").arg(QString::fromStdString(oss.str())));
@@ -317,17 +374,13 @@ void MainWindow::computeDeterminant() {
         showError(err);
         return;
     }
-    double det = 0.0;
+    Complex det = Complex{0.0, 0.0};
     auto res = determinant(A, det);
     if (!res.ok) {
         showError(QString::fromStdString(res.message));
         return;
     }
-    std::ostringstream oss;
-    oss.setf(std::ios::fixed);
-    oss.precision(6);
-    oss << det;
-    appendMessage(QString("Определитель A: %1").arg(QString::fromStdString(oss.str())));
+    appendMessage(QString("Определитель A: %1").arg(matrixToString({{det}})));
 }
 
 void MainWindow::solveSystem() {
@@ -356,8 +409,8 @@ void MainWindow::solveSystem() {
             const size_t n = *rowsOpt;
             const size_t totalCols = *colsOpt;
             const size_t rhsCols = totalCols - n;
-            Matrix Atrim(n, std::vector<double>(n, 0.0));
-            Matrix Cauto(n, std::vector<double>(rhsCols, 0.0));
+            Matrix Atrim(n, std::vector<Complex>(n, Complex{0.0, 0.0}));
+            Matrix Cauto(n, std::vector<Complex>(rhsCols, Complex{0.0, 0.0}));
             for (size_t i = 0; i < n; ++i) {
                 for (size_t j = 0; j < n; ++j) Atrim[i][j] = A[i][j];
                 for (size_t j = 0; j < rhsCols; ++j) Cauto[i][j] = A[i][n + j];
@@ -371,7 +424,7 @@ void MainWindow::solveSystem() {
 
     if (!rhsProvided) {
         const size_t n = A.size();
-        C.assign(n, std::vector<double>(1, 0.0));
+        C.assign(n, std::vector<Complex>(1, Complex{0.0, 0.0}));
     }
 
     Matrix X;
@@ -382,15 +435,14 @@ void MainWindow::solveSystem() {
         return;
     }
     // Build human-readable mapping x1, x2, ...
+    auto fmt = [this](const Complex &z) { return matrixToString({{z}}).toStdString(); };
     std::ostringstream oss;
-    oss.setf(std::ios::fixed);
-    oss.precision(6);
     const size_t nVars = X.size();
     const size_t rhsCols = X.empty() ? 0 : X.front().size();
     for (size_t k = 0; k < rhsCols; ++k) {
         if (rhsCols > 1) oss << "Правая часть " << (k + 1) << ": ";
         for (size_t i = 0; i < nVars; ++i) {
-            oss << "x" << (i + 1) << " = " << X[i][k];
+            oss << "x" << (i + 1) << " = " << fmt(X[i][k]);
             if (i + 1 < nVars) oss << ", ";
         }
         if (k + 1 < rhsCols) oss << "\n";
@@ -400,18 +452,16 @@ void MainWindow::solveSystem() {
     QString extra;
     if (status.startsWith("Бесконечное")) {
         // Try to build one ненулевое решение: X_particular + v_null
-        std::vector<double> vnull;
+        std::vector<Complex> vnull;
         auto nres = nullspaceVector(coeffForNull, vnull);
         if (nres.ok && !vnull.empty()) {
             // Form example: add null vector to first RHS solution (k=0)
             if (!X.empty() && !X.front().empty()) {
                 std::ostringstream ex;
-                ex.setf(std::ios::fixed);
-                ex.precision(6);
                 ex << "Пример ненулевого решения: ";
                 for (size_t i = 0; i < X.size(); ++i) {
-                    double val = X[i][0] + vnull[i];
-                    ex << "x" << (i + 1) << " = " << val;
+                    Complex val = X[i][0] + vnull[i];
+                    ex << "x" << (i + 1) << " = " << matrixToString({{val}}).toStdString();
                     if (i + 1 < X.size()) ex << ", ";
                 }
                 extra = QString::fromStdString(ex.str());
@@ -570,7 +620,7 @@ void appendMul(QPlainTextEdit *out, const QString &msg) {
 static bool addOrSub(const Matrix &A, const Matrix &B, Matrix &out, bool add) {
     if (A.empty() || B.empty()) return false;
     if (A.size() != B.size() || A.front().size() != B.front().size()) return false;
-    out.assign(A.size(), std::vector<double>(A.front().size(), 0.0));
+    out.assign(A.size(), std::vector<Complex>(A.front().size(), Complex{0.0, 0.0}));
     for (size_t i = 0; i < A.size(); ++i) {
         for (size_t j = 0; j < A[i].size(); ++j) {
             out[i][j] = A[i][j] + (add ? B[i][j] : -B[i][j]);
@@ -587,7 +637,7 @@ void MainWindow::transposeSelected() {
         appendMul(outputMul_, "Ошибка: " + err);
         return;
     }
-    Matrix T(M.front().size(), std::vector<double>(M.size(), 0.0));
+    Matrix T(M.front().size(), std::vector<Complex>(M.size(), Complex{0.0, 0.0}));
     for (size_t i = 0; i < M.size(); ++i) {
         for (size_t j = 0; j < M[i].size(); ++j) T[j][i] = M[i][j];
     }
@@ -618,17 +668,13 @@ void MainWindow::determinantSelected() {
         appendMul(outputMul_, "Ошибка: " + err);
         return;
     }
-    double detVal = 0.0;
+    Complex detVal = Complex{0.0, 0.0};
     auto res = determinant(M, detVal);
     if (!res.ok) {
         appendMul(outputMul_, "Ошибка: " + QString::fromStdString(res.message));
         return;
     }
-    std::ostringstream oss;
-    oss.setf(std::ios::fixed);
-    oss.precision(6);
-    oss << detVal;
-    appendMul(outputMul_, QString("det(%1) = %2").arg(name).arg(QString::fromStdString(oss.str())));
+    appendMul(outputMul_, QString("det(%1) = %2").arg(name).arg(matrixToString({{detVal}})));
 }
 
 void MainWindow::eigenSelected() {
@@ -639,17 +685,15 @@ void MainWindow::eigenSelected() {
         appendMul(outputMul_, "Ошибка: " + err);
         return;
     }
-    std::vector<double> eigs;
+    std::vector<Complex> eigs;
     auto res = eigenvaluesQR(M, eigs);
     if (!res.ok) {
         appendMul(outputMul_, "Ошибка: " + QString::fromStdString(res.message));
         return;
     }
     std::ostringstream oss;
-    oss.setf(std::ios::fixed);
-    oss.precision(6);
     for (size_t i = 0; i < eigs.size(); ++i) {
-        oss << eigs[i];
+        oss << matrixToString({{eigs[i]}}).toStdString();
         if (i + 1 < eigs.size()) oss << ", ";
     }
     appendMul(outputMul_, QString("λ(%1): %2").arg(name).arg(QString::fromStdString(oss.str())));
