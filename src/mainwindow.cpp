@@ -187,6 +187,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1040, 720);
 }
 
+static bool parseNumber(const QString &token, double &val) {
+    bool ok = false;
+    QString t = token.trimmed();
+    if (t.startsWith('(') && t.endsWith(')')) {
+        t = t.mid(1, t.size() - 2).trimmed();
+    }
+    val = t.toDouble(&ok);
+    if (ok) return true;
+    const int slashPos = t.indexOf('/');
+    if (slashPos > 0 && slashPos < t.size() - 1) {
+        bool okNum = false, okDen = false;
+        double num = t.left(slashPos).toDouble(&okNum);
+        double den = t.mid(slashPos + 1).toDouble(&okDen);
+        if (okNum && okDen && std::fabs(den) > 1e-15) {
+            val = num / den;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool MainWindow::parseMatrix(const QString &text, Matrix &out, QString &err) const {
     const QString cleaned = text.trimmed();
     if (cleaned.isEmpty()) {
@@ -205,8 +226,8 @@ bool MainWindow::parseMatrix(const QString &text, Matrix &out, QString &err) con
         if (parts.isEmpty()) continue;
         std::vector<double> row;
         for (const auto &p : parts) {
-            const double val = p.toDouble(&ok);
-            if (!ok) {
+            double val = 0.0;
+            if (!parseNumber(p, val)) {
                 err = QString("Cannot parse '%1'").arg(p);
                 return false;
             }
