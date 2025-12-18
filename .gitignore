@@ -1,0 +1,40 @@
+# Build folders
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Qt / Autogen
+mathCalc_autogen/
+*.autogen/
+*.qm
+*.qrc.depends
+
+# User/IDE files
+*.user
+*.user.*
+.DS_Store
+*.swp
+*.swo
+*.kate-swp
+
+# Compiler outputs
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.app
+*.out
+
+# Logs
+*.log
+
+# Backup
+*~
+*.orig
+*.bak
